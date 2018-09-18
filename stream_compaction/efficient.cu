@@ -4,39 +4,59 @@
 #include "efficient.h"
 
 namespace StreamCompaction {
-    namespace Efficient {
-        using StreamCompaction::Common::PerformanceTimer;
-        PerformanceTimer& timer()
-        {
-            static PerformanceTimer timer;
-            return timer;
-        }
+	namespace Efficient {
+		using StreamCompaction::Common::PerformanceTimer;
+		PerformanceTimer& timer()
+		{
+			static PerformanceTimer timer;
+			return timer;
+		}
 
-		__global__ void kernUpSweep(int n, int POT, int POT_EX, int *data)
+		__global__ void kernUpSweep(int n, int count, int *data)
 		{
 			int index = blockIdx.x * blockDim.x + threadIdx.x;
 			if (index >= n) return;
-			if (index % POT_EX != 0) return;
 
-			data[index + POT_EX - 1] += data[index + POT - 1];
+			for (int i = 0; i < count; i++)
+			{
+				int POT = 1 << i;
+				int POT_EX = 1 << i + 1;
+				if (index % POT_EX == 0)
+				{
+					data[index + POT_EX - 1] += data[index + POT - 1];
+				}
+				else
+				{
+					return;
+				}
+				__syncthreads();
+			}
 		}
-
-		__global__ void kernDownSweep(int n, int POT, int POT_EX, int *data)
+		
+		__global__ void kernDownSweep(int n, int count, int *data)
 		{
 			int index = blockIdx.x * blockDim.x + threadIdx.x;
 			if (index >= n) return;
-			if (index % POT_EX != 0) return;
-			
-			int temp = data[index + POT - 1];
-			data[index + POT - 1] = data[index + POT_EX - 1];
-			data[index + POT_EX - 1] += temp;
+
+			for (int i = count - 1; i >= 0; i--)
+			{
+				int POT = 1 << i;
+				int POT_EX = 1 << i + 1;
+				if (index % POT_EX == 0)
+				{
+					int temp = data[index + POT - 1];
+					data[index + POT - 1] = data[index + POT_EX - 1];
+					data[index + POT_EX - 1] += temp;
+				}
+				__syncthreads();
+			}
 		}
 
 
-        /**
-         * Performs prefix-sum (aka scan) on idata, storing the result into odata.
-         */
-        void scan(int n, int *odata, const int *idata) {
+		/**
+		 * Performs prefix-sum (aka scan) on idata, storing the result into odata.
+		 */
+		void scan(int n, int *odata, const int *idata) {
 			int count = ilog2ceil(n);
 			int number = 1 << count;
 			int *dev_data;
@@ -53,46 +73,35 @@ namespace StreamCompaction {
 			}
 
 			//start ticking
-            timer().startGpuTimer();
-			for (int i = 0; i < count; i++)
-			{
-				kernUpSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_data);
-#ifdef SYNC_GRID
-				cudaThreadSynchronize();
-#endif
-			}
+			timer().startGpuTimer();
 
+			//up sweep
+			kernUpSweep << <gridsize, blocksize >> > (number, count, dev_data);
 			//set data[number-1] to 0
 			cudaMemset((void*)(dev_data + (number - 1)), 0, sizeof(int));
 			checkCUDAErrorFn("set dev_data[number-1]");
-
-			for (int i = count - 1; i >= 0; i--)
-			{
-				kernDownSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_data);
-#ifdef SYNC_GRID
-				cudaThreadSynchronize();
-#endif
-			}
+			//down sweep
+			kernDownSweep << <gridsize, blocksize >> > (number, count, dev_data);
 
 			//stop ticking
-            timer().endGpuTimer();
+			timer().endGpuTimer();
 
 			cudaMemcpy(odata, dev_data, n * sizeof(int), cudaMemcpyDeviceToHost);
 
 			cudaFree(dev_data);
 			checkCUDAErrorFn("free dev_data");
-        }
+		}
 
-        /**
-         * Performs stream compaction on idata, storing the result into odata.
-         * All zeroes are discarded.
-         *
-         * @param n      The number of elements in idata.
-         * @param odata  The array into which to store elements.
-         * @param idata  The array of elements to compact.
-         * @returns      The number of elements remaining after compaction.
-         */
-        int compact(int n, int *odata, const int *idata) {
+		/**
+		 * Performs stream compaction on idata, storing the result into odata.
+		 * All zeroes are discarded.
+		 *
+		 * @param n      The number of elements in idata.
+		 * @param odata  The array into which to store elements.
+		 * @param idata  The array of elements to compact.
+		 * @returns      The number of elements remaining after compaction.
+		 */
+		int compact(int n, int *odata, const int *idata) {
 			int result = 0;
 			int count = ilog2ceil(n);
 			int number = 1 << count;
@@ -130,33 +139,21 @@ namespace StreamCompaction {
 			}
 
 			//start ticking
-            timer().startGpuTimer();
+			timer().startGpuTimer();
 
-			for (int i = 0; i < count; i++)
-			{
-				kernUpSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_indices);
-#ifdef SYNC_GRID
-				cudaThreadSynchronize();
-#endif
-			}
-
+			//up sweep
+			kernUpSweep << <gridsize, blocksize >> > (number, count, dev_indices);
 			//set data[number-1] to 0
 			cudaMemset((void*)(dev_indices + (number - 1)), 0, sizeof(int));
 			checkCUDAErrorFn("set dev_indices[number-1]");
+			//down sweep
+			kernDownSweep << <gridsize, blocksize >> > (number, count, dev_indices);
 
-			
-			for (int i = count - 1; i >= 0; i--)
-			{
-				kernDownSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_indices);
-#ifdef SYNC_GRID
-				cudaThreadSynchronize();
-#endif
-			}
 
 			Common::kernScatter << <gridsize_EXACT, blocksize >> > (n, dev_odata, dev_idata, dev_bools, dev_indices);
 
 			//stop ticking
-            timer().endGpuTimer();
+			timer().endGpuTimer();
 
 			cudaMemcpy(&result, dev_indices + (n - 1), sizeof(int), cudaMemcpyDeviceToHost);
 			result += (int)(idata[n - 1] != 0);
@@ -173,7 +170,7 @@ namespace StreamCompaction {
 
 			cudaFree(dev_bools);
 			checkCUDAErrorFn("free dev_bools");
-            return result;
-        }
-    }
+			return result;
+		}
+	}
 }

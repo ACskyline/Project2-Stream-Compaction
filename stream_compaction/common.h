@@ -15,7 +15,7 @@
 
 #define blocksize 128
 
-#define SYNC_GRID
+//#define SYNC_GRID
 
 /**
  * Check for CUDA errors; print and exit if there was a problem.
