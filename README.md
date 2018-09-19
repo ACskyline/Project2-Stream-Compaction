@@ -11,11 +11,11 @@ CUDA Stream Compaction
 
 #### Power-of-two
 
-![](images/1.JPG)
+![](img/1.JPG)
 
 #### Non-power-of-two
 
-![](images/2.JPG)
+![](img/2.JPG)
 
 ### Q&A
 
