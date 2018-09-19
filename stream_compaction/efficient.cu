@@ -12,44 +12,24 @@ namespace StreamCompaction {
 			return timer;
 		}
 
-		__global__ void kernUpSweep(int n, int count, int *data)
+		__global__ void kernUpSweep(int n, int POT, int POT_EX, int *data)
 		{
 			int index = blockIdx.x * blockDim.x + threadIdx.x;
 			if (index >= n) return;
+			if (index % POT_EX != 0) return;
 
-			for (int i = 0; i < count; i++)
-			{
-				int POT = 1 << i;
-				int POT_EX = 1 << i + 1;
-				if (index % POT_EX == 0)
-				{
-					data[index + POT_EX - 1] += data[index + POT - 1];
-				}
-				else
-				{
-					return;
-				}
-				__syncthreads();
-			}
+			data[index + POT_EX - 1] += data[index + POT - 1];
 		}
-		
-		__global__ void kernDownSweep(int n, int count, int *data)
+
+		__global__ void kernDownSweep(int n, int POT, int POT_EX, int *data)
 		{
 			int index = blockIdx.x * blockDim.x + threadIdx.x;
 			if (index >= n) return;
+			if (index % POT_EX != 0) return;
 
-			for (int i = count - 1; i >= 0; i--)
-			{
-				int POT = 1 << i;
-				int POT_EX = 1 << i + 1;
-				if (index % POT_EX == 0)
-				{
-					int temp = data[index + POT - 1];
-					data[index + POT - 1] = data[index + POT_EX - 1];
-					data[index + POT_EX - 1] += temp;
-				}
-				__syncthreads();
-			}
+			int temp = data[index + POT - 1];
+			data[index + POT - 1] = data[index + POT_EX - 1];
+			data[index + POT_EX - 1] += temp;
 		}
 
 
@@ -74,14 +54,25 @@ namespace StreamCompaction {
 
 			//start ticking
 			timer().startGpuTimer();
+			for (int i = 0; i < count; i++)
+			{
+				kernUpSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_data);
+#ifdef SYNC_GRID
+				cudaThreadSynchronize();
+#endif
+			}
 
-			//up sweep
-			kernUpSweep << <gridsize, blocksize >> > (number, count, dev_data);
 			//set data[number-1] to 0
 			cudaMemset((void*)(dev_data + (number - 1)), 0, sizeof(int));
 			checkCUDAErrorFn("set dev_data[number-1]");
-			//down sweep
-			kernDownSweep << <gridsize, blocksize >> > (number, count, dev_data);
+
+			for (int i = count - 1; i >= 0; i--)
+			{
+				kernDownSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_data);
+#ifdef SYNC_GRID
+				cudaThreadSynchronize();
+#endif
+			}
 
 			//stop ticking
 			timer().endGpuTimer();
@@ -141,14 +132,26 @@ namespace StreamCompaction {
 			//start ticking
 			timer().startGpuTimer();
 
-			//up sweep
-			kernUpSweep << <gridsize, blocksize >> > (number, count, dev_indices);
+			for (int i = 0; i < count; i++)
+			{
+				kernUpSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_indices);
+#ifdef SYNC_GRID
+				cudaThreadSynchronize();
+#endif
+			}
+
 			//set data[number-1] to 0
 			cudaMemset((void*)(dev_indices + (number - 1)), 0, sizeof(int));
 			checkCUDAErrorFn("set dev_indices[number-1]");
-			//down sweep
-			kernDownSweep << <gridsize, blocksize >> > (number, count, dev_indices);
 
+
+			for (int i = count - 1; i >= 0; i--)
+			{
+				kernDownSweep << <gridsize, blocksize >> > (number, 1 << i, 1 << i + 1, dev_indices);
+#ifdef SYNC_GRID
+				cudaThreadSynchronize();
+#endif
+			}
 
 			Common::kernScatter << <gridsize_EXACT, blocksize >> > (n, dev_odata, dev_idata, dev_bools, dev_indices);
 
