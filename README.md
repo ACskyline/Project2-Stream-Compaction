@@ -21,7 +21,7 @@ CUDA Stream Compaction
 
 #### Write a brief explanation of the phenomena you see here. Can you find the performance bottlenecks? Is it memory I/O? Computation? Is it different for each implementation?
 
-The first phenomenon is that all GPU algorithm is slower than CPU algorithm. This may be because of there is context changing between GPU and CPU for GPU algorithms whereas there is not for the CPU algorithm.
+The first phenomenon is that all GPU algorithm is slower than CPU algorithm. This may be because of there is context changing between GPU and CPU for GPU algorithms whereas there is not for the CPU algorithm. The msvc compiler may also did some optimization to the C++ code.
 
 The second phenomenon is that efficient GPU algorithm is not faster than naive GPU algorithm. This may be because the naive GPU algorithm contains only one pass and the efficient GPU algorithm contains two pass, and during those two passes, the scheduling is not reliable, which means early termination somehow does not alleviate the idling of some GPU threads. Cache may be another reason why naive algorithm is faster. In naive algorithm, we are accessing the array sequentially, where in efficient algorithm, we are accessing the array with a changing step. Also, we are doing more global reading and writing in the efficienet algorithm.
 
