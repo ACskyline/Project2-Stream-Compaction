@@ -9,7 +9,7 @@ CUDA Stream Compaction
   * [LinkedIn](https://www.linkedin.com/in/xiao-zhang-674bb8148/)
 * Tested on: Windows 10, i7-7700K @ 4.20GHz 16.0GB, GTX 1080 15.96GB (my own PC)
 
-### Analysis
+### Analysis (the pictures shown are the time in millisecond to execute the scan only)
 
 #### Power-of-two
 
@@ -23,13 +23,13 @@ CUDA Stream Compaction
 
 #### Write a brief explanation of the phenomena you see here. Can you find the performance bottlenecks? Is it memory I/O? Computation? Is it different for each implementation?
 
-The first phenomenon is that all GPU algorithm is slower than CPU algorithm. This may be because of there is context changing between GPU and CPU for GPU algorithms whereas there is not for the CPU algorithm. The msvc compiler may also did some optimization to the C++ code.
+* The first phenomenon is that all GPU algorithm is slower than CPU algorithm. This may be because of there is context changing between GPU and CPU for GPU algorithms whereas there is not for the CPU algorithm. The msvc compiler may also did some optimization to the C++ code.
 
-The second phenomenon is that efficient GPU algorithm is not faster than naive GPU algorithm. This may be because the naive GPU algorithm contains only one pass and the efficient GPU algorithm contains two pass, and during those two passes, the scheduling is not reliable, which means early termination somehow does not alleviate the idling of some GPU threads. Cache may be another reason why naive algorithm is faster. In naive algorithm, we are accessing the array sequentially, where in efficient algorithm, we are accessing the array with a changing step. Also, we are doing more global reading and writing in the efficienet algorithm.
+* The second phenomenon is that efficient GPU algorithm is not faster than naive GPU algorithm. This may be because the naive GPU algorithm contains only one pass and the efficient GPU algorithm contains two pass, and during those two passes, the scheduling is not reliable, which means early termination somehow does not alleviate the idling of some GPU threads. Cache may be another reason why naive algorithm is faster. In naive algorithm, we are accessing the array sequentially, where in efficient algorithm, we are accessing the array with a changing step. Also, we are doing more global reading and writing in the efficienet algorithm.
 
-The third phenomenon is that thrust scan algorithm is slower than any other algorithm. One possible reason is that the blocksize and gridsize is not set properly and thrust just uses some default value, which is not optimal for my hardware condition. 
+* The third phenomenon is that thrust scan algorithm is slower than any other algorithm. One possible reason is that the blocksize and gridsize is not set properly and thrust just uses some default value, which is not optimal for my hardware condition. 
 
-The last phenomenon is that for arrays whose size is a non-power-of-two number, the efficient algorithm suffers alot in terms of performance. This may be becasue my implementation is not optimal. I use cudaMemset to set all the extra elements to zero but if the code just submit the command to GPU and returned immediately, the clock start to tick, the next kernel function is also submitted but the last cudaMemset is still running, then there is still some time before the actual scan algorithm starting to execute. The way that I set the last element of the array to zero after the up sweep kernel is also through cudaMemset. If there is some delay way doing this, it will also affect the performance of the efficient algorithm in general, with non-power-of-two-sized array or not.
+* The last phenomenon is that for arrays whose size is a non-power-of-two number, the efficient algorithm suffers alot in terms of performance. This may be becasue my implementation is not optimal. I use cudaMemset to set all the extra elements to zero but if the code just submit the command to GPU and returned immediately, the clock start to tick, the next kernel function is also submitted but the last cudaMemset is still running, then there is still some time before the actual scan algorithm starting to execute. The way that I set the last element of the array to zero after the up sweep kernel is also through cudaMemset. If there is some delay way doing this, it will also affect the performance of the efficient algorithm in general, with non-power-of-two-sized array or not.
 
 ### Output
 
